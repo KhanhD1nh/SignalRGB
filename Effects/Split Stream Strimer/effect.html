@@ -1,0 +1,181 @@
+<head>
+    <meta charset="UTF-8" />
+    <title>Split Stream Strimer</title>
+
+    <!-- Tham số chỉnh hiệu ứng -->
+    <meta property="squareColor" label="Square color" type="color" min="0" max="360" default="#ffffff" />
+    <meta property="backgroundColor" label="Background color" type="color" min="0" max="360" default="#000000" />
+
+    <meta property="squareSize" label="Square size (length)" type="number" min="2" max="40" default="8" />
+    <meta property="speed" label="Speed" type="number" min="1" max="10" default="5" />
+
+    <meta property="rows" label="Number of rows" type="number" min="1" max="10" default="8" />
+
+    <meta property="stripeThickness" label="Stripe thickness" type="number" min="1" max="20" default="4" />
+
+    <meta property="direction" label="Direction" type="combobox" values="Left to Right,Right to Left" default="Left to Right" />
+</head>
+<body style="margin: 0; padding: 0">
+    <canvas id="myCanvas" width="320" height="200"></canvas>
+
+    <script>
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Tham số có thể chỉnh trong UI (đồng bộ với meta)
+        var squareColor = '#ffffff';
+        var backgroundColor = '#000000';
+
+        var squareSize = 8; // độ dài (theo chiều chạy)
+        var speed = 5; // tốc độ di chuyển (1–10)
+        var rowsTop = 4; // số hàng ở nửa trên
+        var rowsBottom = 6; // số hàng ở nửa dưới
+        var rows = rowsTop + rowsBottom; // tổng số hàng logic
+        var stripeThickness = 4; // độ dày (chiều rộng) của dải
+        var direction = 'Left to Right'; // hoặc "Right to Left"
+
+        // Vùng hiệu ứng: chiếm 30% tổng chiều rộng canvas, sát lề trái
+        function getEffectArea() {
+            const areaWidth = canvas.width * 0.3;
+            const areaX = 0; // sát lề trái
+            const areaY = 0;
+            const areaHeight = canvas.height;
+            return { areaX, areaY, areaWidth, areaHeight };
+        }
+
+        // Mảng lưu các ô vuông/dải đang chạy
+        const squares = [];
+        let lastTime = performance.now();
+        const rowCooldowns = []; // lưu thời điểm spawn gần nhất của từng hàng
+        let rowCursor = 0; // dùng để quay vòng qua tất cả các hàng
+
+        function createSquare(forbiddenRows) {
+            const { areaX, areaY, areaWidth, areaHeight } = getEffectArea();
+
+            const now = performance.now();
+            const minRowInterval = 250; // ms, khoảng thời gian tối thiểu giữa 2 vệt cùng hàng
+
+            // Tìm các hàng đủ điều kiện (cooldown đã hết) và không bị cấm
+            const candidateRows = [];
+            for (let r = 0; r < rows; r++) {
+                if (!rowCooldowns[r] || now - rowCooldowns[r] > minRowInterval) {
+                    if (!forbiddenRows || forbiddenRows.indexOf(r) === -1) {
+                        candidateRows.push(r);
+                    }
+                }
+            }
+
+            if (candidateRows.length === 0) {
+                return; // không hàng nào đủ điều kiện, bỏ lượt spawn này
+            }
+
+            // Ưu tiên chọn hàng theo vòng quay để mọi hàng (kể cả 2 hàng dưới cùng) đều được dùng
+            candidateRows.sort((a, b) => {
+                const da = (a - rowCursor + rows) % rows;
+                const db = (b - rowCursor + rows) % rows;
+                return da - db;
+            });
+
+            const rowIndex = candidateRows[0];
+            rowCursor = (rowIndex + 1) % rows;
+            rowCooldowns[rowIndex] = now;
+
+            // Tính vị trí Y theo 2 vùng: trên (4 hàng) và dưới (6 hàng)
+            const halfHeight = areaHeight / 2;
+            let baseY;
+            let localIndex;
+            let rowHeight;
+
+            if (rowIndex < rowsTop) {
+                // Nửa trên: 4 hàng
+                baseY = areaY;
+                localIndex = rowIndex; // 0..3
+                rowHeight = halfHeight / rowsTop;
+            } else {
+                // Nửa dưới: 6 hàng
+                baseY = areaY + halfHeight;
+                localIndex = rowIndex - rowsTop; // 0..5
+                rowHeight = halfHeight / rowsBottom;
+            }
+
+            const y = baseY + localIndex * rowHeight + (rowHeight - stripeThickness) / 2;
+
+            const dir = direction === 'Left to Right' ? 1 : -1;
+            const startX = dir === 1 ? areaX - squareSize : areaX + areaWidth;
+
+            squares.push({
+                x: startX,
+                y: y,
+                dir: dir
+            });
+
+            return rowIndex;
+        }
+
+        // Random thời gian xuất hiện dày hơn (80–220ms), mỗi lần spawn tối đa 2 dải
+        function scheduleNextSquare() {
+            const delay = 80 + Math.random() * 140; // 80–220ms
+            setTimeout(() => {
+                // dải thứ nhất: không hạn chế ngoài cooldown
+                const firstRow = createSquare();
+
+                // dải thứ hai: chỉ tạo nếu tìm được hàng không kề với hàng thứ nhất
+                if (typeof firstRow === 'number') {
+                    const forbidden = [firstRow];
+                    if (firstRow > 0) forbidden.push(firstRow - 1);
+                    if (firstRow < rows - 1) forbidden.push(firstRow + 1);
+                    createSquare(forbidden);
+                }
+
+                scheduleNextSquare();
+            }, delay);
+        }
+
+        function updateAndDrawSquares() {
+            const { areaX, areaY, areaWidth, areaHeight } = getEffectArea();
+
+            ctx.fillStyle = backgroundColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const now = performance.now();
+            const dt = (now - lastTime) / 1000; // giây
+            lastTime = now;
+
+            const baseSpeed = speed * 40 * dt; // px/frame phụ thuộc dt
+
+            for (let i = squares.length - 1; i >= 0; i--) {
+                const s = squares[i];
+                s.x += s.dir * baseSpeed;
+
+                const outLeft = s.x + squareSize < areaX;
+                const outRight = s.x > areaX + areaWidth;
+
+                if (outLeft || outRight) {
+                    squares.splice(i, 1);
+                    continue;
+                }
+
+                ctx.fillStyle = squareColor;
+                ctx.fillRect(s.x, s.y, squareSize, stripeThickness);
+            }
+        }
+
+        function loop() {
+            updateAndDrawSquares();
+            requestAnimationFrame(loop);
+        }
+
+        // Hàm callback để engine có thể cập nhật khi user đổi tham số
+        function onsquareColorChanged() {}
+        function onbackgroundColorChanged() {}
+        function onsquareSizeChanged() {}
+        function onspeedChanged() {}
+        function onrowsChanged() {}
+        function onstripeThicknessChanged() {}
+        function ondirectionChanged() {}
+
+        // Khởi động
+        scheduleNextSquare();
+        loop();
+    </script>
+</body>
