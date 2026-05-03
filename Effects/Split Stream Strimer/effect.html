@@ -275,12 +275,16 @@
                     if (tailLength > 0) {
                         let gx0;
                         let gx1;
+                        /* Trail neo vao CANH DU DAU di chuyen. Neo vao mx trai khien gx1 <= gx0
+                           khi thanh moi vao / sap ra khoi vung visible -> chi con khoi trang dac. */
                         if (dx >= 0) {
-                            gx0 = Math.max(areaX, visorX - tailLength);
-                            gx1 = visorX;
+                            const leadX = visorX + barSize;
+                            gx0 = Math.max(areaX, leadX - tailLength);
+                            gx1 = Math.min(areaX + areaWidth, leadX);
                         } else {
-                            gx0 = visorX + barSize;
-                            gx1 = Math.min(areaX + areaWidth, visorX + barSize + tailLength);
+                            const leadX = visorX;
+                            gx0 = Math.max(areaX, leadX);
+                            gx1 = Math.min(areaX + areaWidth, leadX + tailLength);
                         }
                         if (gx1 > gx0) {
                             const grad = ctx.createLinearGradient(gx0, areaY, gx1, areaY);
@@ -296,7 +300,11 @@
                         }
                     }
                     ctx.fillStyle = currentVisorColor;
-                    ctx.fillRect(visorX, areaY, barSize, areaHeight);
+                    const barX0 = Math.max(areaX, visorX);
+                    const barX1 = Math.min(areaX + areaWidth, visorX + barSize);
+                    if (barX1 > barX0) {
+                        ctx.fillRect(barX0, areaY, barX1 - barX0, areaHeight);
+                    }
 
                     let ph = w.phase + phaseDelta;
                     while (ph >= 1) {
@@ -322,11 +330,13 @@
                         let gy0;
                         let gy1;
                         if (dy >= 0) {
-                            gy0 = Math.max(areaY, visorY - tailLength);
-                            gy1 = visorY;
+                            const leadY = visorY + barSize;
+                            gy0 = Math.max(areaY, leadY - tailLength);
+                            gy1 = Math.min(areaY + areaHeight, leadY);
                         } else {
-                            gy0 = visorY + barSize;
-                            gy1 = Math.min(areaY + areaHeight, visorY + barSize + tailLength);
+                            const leadY = visorY;
+                            gy0 = Math.max(areaY, leadY);
+                            gy1 = Math.min(areaY + areaHeight, leadY + tailLength);
                         }
                         if (gy1 > gy0) {
                             const grad = ctx.createLinearGradient(areaX, gy0, areaX, gy1);
@@ -342,7 +352,11 @@
                         }
                     }
                     ctx.fillStyle = currentVisorColor;
-                    ctx.fillRect(areaX, visorY, areaWidth, barSize);
+                    const barY0 = Math.max(areaY, visorY);
+                    const barY1 = Math.min(areaY + areaHeight, visorY + barSize);
+                    if (barY1 > barY0) {
+                        ctx.fillRect(areaX, barY0, areaWidth, barY1 - barY0);
+                    }
 
                     let ph = w.phase + phaseDelta;
                     while (ph >= 1) {
