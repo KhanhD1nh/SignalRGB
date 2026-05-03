@@ -4,7 +4,8 @@
 
     <!-- Tham số chỉnh hiệu ứng -->
     <meta property="squareColor" label="Square color" type="color" min="0" max="360" default="#ffffff" />
-    <meta property="backgroundColor" label="Background color" type="color" min="0" max="360" default="#000000" />
+    <meta property="strimmerBackgroundColor" label="Strimmer background" type="color" min="0" max="360" default="#000000" />
+    <meta property="visorBackgroundColor" label="Visor background" type="color" min="0" max="360" default="#000000" />
 
     <meta property="squareSize" label="Square size (length)" type="number" min="2" max="40" default="8" />
     <meta property="speed" label="Speed" type="number" min="1" max="10" default="5" />
@@ -20,6 +21,7 @@
     <meta property="visorTrail" label="Visor trail" type="number" min="0" max="100" default="50" />
     <meta property="visorBarWidth" label="Visor bar width" type="number" min="1" max="50" default="20" />
     <meta property="visorVertical" label="Visor vertical" type="boolean" default="1" />
+    <meta property="visorDirection" label="Visor direction" type="combobox" values="Forward,Reverse" default="Forward" />
 </head>
 <body style="margin: 0; padding: 0">
     <canvas id="myCanvas" width="320" height="200"></canvas>
@@ -30,7 +32,8 @@
 
         // Tham số có thể chỉnh trong UI (đồng bộ với meta)
         var squareColor = '#ffffff';
-        var backgroundColor = '#000000';
+        var strimmerBackgroundColor = '#000000';
+        var visorBackgroundColor = '#000000';
 
         var squareSize = 8; // độ dài (theo chiều chạy)
         var speed = 5; // tốc độ di chuyển split stream (1–10)
@@ -45,8 +48,8 @@
         var visorTrail = 50;
         var visorBarWidth = 20;
         var visorVertical = true;
+        var visorDirection = 'Forward';
         var currentVisorColor = visorColor;
-        var visorNegative = false;
         var visorX = 0;
         var visorY = 0;
 
@@ -60,7 +63,7 @@
         }
 
         function getVisorArea() {
-            const areaWidth = canvas.width * 0.60;
+            const areaWidth = canvas.width * 0.50;
             const areaX = canvas.width - areaWidth;
             const areaY = 0;
             const areaHeight = canvas.height;
@@ -167,7 +170,7 @@
 
         function updateAndDrawSquares() {
             const { areaX, areaY, areaWidth, areaHeight } = getEffectArea();
-            ctx.fillStyle = backgroundColor;
+            ctx.fillStyle = strimmerBackgroundColor;
             ctx.fillRect(areaX, areaY, areaWidth, areaHeight);
 
             const now = performance.now();
@@ -208,6 +211,20 @@
             };
         }
 
+        function resetVisorPosition() {
+            const { areaX, areaY, areaWidth, areaHeight } = getVisorArea();
+            const barSize = Math.max(1, Math.min(visorBarWidth, visorVertical ? areaWidth : areaHeight));
+            const forward = visorDirection !== 'Reverse';
+
+            if (visorVertical) {
+                visorX = forward ? areaX - barSize : areaX + areaWidth;
+                visorY = areaY;
+            } else {
+                visorY = forward ? areaY - barSize : areaY + areaHeight;
+                visorX = areaX;
+            }
+        }
+
         function updateAndDrawVisor() {
             const { areaX, areaY, areaWidth, areaHeight } = getVisorArea();
 
@@ -217,7 +234,7 @@
 
             const trailAlpha = Math.max(0, Math.min(1, 1 - visorTrail / 100));
             ctx.globalAlpha = trailAlpha;
-            ctx.fillStyle = backgroundColor;
+            ctx.fillStyle = visorBackgroundColor;
             ctx.fillRect(areaX, areaY, areaWidth, areaHeight);
             ctx.globalAlpha = 1;
 
@@ -226,14 +243,10 @@
             const rgb = hexToRgb(currentVisorColor);
             const trailStrength = Math.max(0, Math.min(1, visorTrail / 100));
             const tailLength = Math.max(barSize, (visorVertical ? areaWidth : areaHeight) * 0.35 * trailStrength);
+            const dirSign = visorDirection === 'Reverse' ? -1 : 1;
 
             if (visorVertical) {
-                if (visorX < areaX || visorX > areaX + areaWidth - barSize) {
-                    visorX = areaX;
-                    visorNegative = false;
-                }
-
-                const dx = visorNegative ? -move : move;
+                const dx = dirSign * move;
                 if (tailLength > 0) {
                     let gx0;
                     let gx1;
@@ -261,22 +274,15 @@
                 ctx.fillRect(visorX, areaY, barSize, areaHeight);
                 visorX += dx;
 
-                if (visorX >= areaX + areaWidth - barSize) {
-                    visorX = areaX + areaWidth - barSize;
-                    visorNegative = true;
+                if (dx >= 0 && visorX > areaX + areaWidth) {
+                    visorX = areaX - barSize;
                     currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
-                } else if (visorX <= areaX) {
-                    visorX = areaX;
-                    visorNegative = false;
+                } else if (dx < 0 && visorX + barSize < areaX) {
+                    visorX = areaX + areaWidth;
                     currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
                 }
             } else {
-                if (visorY < areaY || visorY > areaY + areaHeight - barSize) {
-                    visorY = areaY;
-                    visorNegative = false;
-                }
-
-                const dy = visorNegative ? -move : move;
+                const dy = dirSign * move;
                 if (tailLength > 0) {
                     let gy0;
                     let gy1;
@@ -304,13 +310,11 @@
                 ctx.fillRect(areaX, visorY, areaWidth, barSize);
                 visorY += dy;
 
-                if (visorY >= areaY + areaHeight - barSize) {
-                    visorY = areaY + areaHeight - barSize;
-                    visorNegative = true;
+                if (dy >= 0 && visorY > areaY + areaHeight) {
+                    visorY = areaY - barSize;
                     currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
-                } else if (visorY <= areaY) {
-                    visorY = areaY;
-                    visorNegative = false;
+                } else if (dy < 0 && visorY + barSize < areaY) {
+                    visorY = areaY + areaHeight;
                     currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
                 }
             }
@@ -319,7 +323,7 @@
         function loop() {
             const gap = getGapArea();
             if (gap.areaWidth > 0) {
-                ctx.fillStyle = backgroundColor;
+                ctx.fillStyle = strimmerBackgroundColor;
                 ctx.fillRect(gap.areaX, gap.areaY, gap.areaWidth, gap.areaHeight);
             }
             updateAndDrawSquares();
@@ -329,7 +333,8 @@
 
         // Hàm callback để engine có thể cập nhật khi user đổi tham số
         function onsquareColorChanged() {}
-        function onbackgroundColorChanged() {}
+        function onstrimmerBackgroundColorChanged() {}
+        function onvisorBackgroundColorChanged() {}
         function onsquareSizeChanged() {}
         function onspeedChanged() {}
         function onrowsChanged() {}
@@ -341,18 +346,18 @@
         function onvisorRandomColorsChanged() {}
         function onvisorSpeedChanged() {}
         function onvisorTrailChanged() {}
-        function onvisorBarWidthChanged() {}
+        function onvisorBarWidthChanged() {
+            resetVisorPosition();
+        }
         function onvisorVerticalChanged() {
-            const { areaX, areaY } = getVisorArea();
-            visorX = areaX;
-            visorY = areaY;
-            visorNegative = false;
+            resetVisorPosition();
+        }
+        function onvisorDirectionChanged() {
+            resetVisorPosition();
         }
 
         // Khởi động
-        const visorArea = getVisorArea();
-        visorX = visorArea.areaX;
-        visorY = visorArea.areaY;
+        resetVisorPosition();
         scheduleNextSquare();
         loop();
     </script>
