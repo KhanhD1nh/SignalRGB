@@ -22,6 +22,7 @@
     <meta property="visorBarWidth" label="Visor bar width" type="number" min="1" max="50" default="20" />
     <meta property="visorVertical" label="Visor vertical" type="boolean" default="1" />
     <meta property="visorDirection" label="Visor direction" type="combobox" values="Forward,Reverse" default="Forward" />
+    <meta property="visorWaveCount" label="Visor wave count" type="number" min="1" max="12" default="1" />
 </head>
 <body style="margin: 0; padding: 0">
     <canvas id="myCanvas" width="320" height="200"></canvas>
@@ -49,9 +50,35 @@
         var visorBarWidth = 20;
         var visorVertical = true;
         var visorDirection = 'Forward';
+        var visorWaveCount = 1;
         var currentVisorColor = visorColor;
-        var visorX = 0;
-        var visorY = 0;
+        const visorWaves = []; // each: { phase } in [0,1), one full sweep of the motion axis
+
+        function clampVisorWaveCount(n) {
+            const v = Number(n);
+            let c = Math.floor(Number.isFinite(v) ? v : 1);
+            if (c < 1) c = 1;
+            if (c > 12) c = 12;
+            return c;
+        }
+
+        function layoutVisorWaves() {
+            const n = clampVisorWaveCount(visorWaveCount);
+            while (visorWaves.length < n) {
+                visorWaves.push({ phase: visorWaves.length / Math.max(n, 1) });
+            }
+            while (visorWaves.length > n) visorWaves.pop();
+            for (let i = 0; i < n; i++) {
+                visorWaves[i].phase = i / n;
+            }
+        }
+
+        function ensureVisorWaveCountSynced() {
+            const n = clampVisorWaveCount(visorWaveCount);
+            if (visorWaves.length !== n) {
+                layoutVisorWaves();
+            }
+        }
 
         // Vùng hiệu ứng: chiếm 30% tổng chiều rộng canvas, sát lề trái
         function getEffectArea() {
@@ -212,17 +239,7 @@
         }
 
         function resetVisorPosition() {
-            const { areaX, areaY, areaWidth, areaHeight } = getVisorArea();
-            const barSize = Math.max(1, Math.min(visorBarWidth, visorVertical ? areaWidth : areaHeight));
-            const forward = visorDirection !== 'Reverse';
-
-            if (visorVertical) {
-                visorX = forward ? areaX - barSize : areaX + areaWidth;
-                visorY = areaY;
-            } else {
-                visorY = forward ? areaY - barSize : areaY + areaHeight;
-                visorX = areaX;
-            }
+            layoutVisorWaves();
         }
 
         function updateAndDrawVisor() {
@@ -239,83 +256,108 @@
             ctx.globalAlpha = 1;
 
             const barSize = Math.max(1, Math.min(visorBarWidth, visorVertical ? areaWidth : areaHeight));
+            const cycleLen =
+                Math.max(barSize + 1, visorVertical ? areaWidth + barSize : areaHeight + barSize);
             const move = visorSpeed / 10;
             const rgb = hexToRgb(currentVisorColor);
             const trailStrength = Math.max(0, Math.min(1, visorTrail / 100));
             const tailLength = Math.max(barSize, (visorVertical ? areaWidth : areaHeight) * 0.35 * trailStrength);
             const dirSign = visorDirection === 'Reverse' ? -1 : 1;
+            const phaseDelta = dirSign * (move / cycleLen);
+
+            ensureVisorWaveCountSynced();
 
             if (visorVertical) {
-                const dx = dirSign * move;
-                if (tailLength > 0) {
-                    let gx0;
-                    let gx1;
-                    if (dx >= 0) {
-                        gx0 = Math.max(areaX, visorX - tailLength);
-                        gx1 = visorX;
-                    } else {
-                        gx0 = visorX + barSize;
-                        gx1 = Math.min(areaX + areaWidth, visorX + barSize + tailLength);
-                    }
-                    if (gx1 > gx0) {
-                        const grad = ctx.createLinearGradient(gx0, areaY, gx1, areaY);
+                for (let wi = visorWaves.length - 1; wi >= 0; wi--) {
+                    const w = visorWaves[wi];
+                    const visorX = areaX - barSize + w.phase * cycleLen;
+                    const dx = dirSign * move;
+                    if (tailLength > 0) {
+                        let gx0;
+                        let gx1;
                         if (dx >= 0) {
-                            grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
-                            grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
+                            gx0 = Math.max(areaX, visorX - tailLength);
+                            gx1 = visorX;
                         } else {
-                            grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
-                            grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+                            gx0 = visorX + barSize;
+                            gx1 = Math.min(areaX + areaWidth, visorX + barSize + tailLength);
                         }
-                        ctx.fillStyle = grad;
-                        ctx.fillRect(gx0, areaY, gx1 - gx0, areaHeight);
+                        if (gx1 > gx0) {
+                            const grad = ctx.createLinearGradient(gx0, areaY, gx1, areaY);
+                            if (dx >= 0) {
+                                grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+                                grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
+                            } else {
+                                grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
+                                grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+                            }
+                            ctx.fillStyle = grad;
+                            ctx.fillRect(gx0, areaY, gx1 - gx0, areaHeight);
+                        }
                     }
-                }
-                ctx.fillStyle = currentVisorColor;
-                ctx.fillRect(visorX, areaY, barSize, areaHeight);
-                visorX += dx;
+                    ctx.fillStyle = currentVisorColor;
+                    ctx.fillRect(visorX, areaY, barSize, areaHeight);
 
-                if (dx >= 0 && visorX > areaX + areaWidth) {
-                    visorX = areaX - barSize;
-                    currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
-                } else if (dx < 0 && visorX + barSize < areaX) {
-                    visorX = areaX + areaWidth;
-                    currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
+                    let ph = w.phase + phaseDelta;
+                    while (ph >= 1) {
+                        ph -= 1;
+                        if (visorRandomColors) {
+                            currentVisorColor = generateRandomColor();
+                        }
+                    }
+                    while (ph < 0) {
+                        ph += 1;
+                        if (visorRandomColors) {
+                            currentVisorColor = generateRandomColor();
+                        }
+                    }
+                    w.phase = ph;
                 }
             } else {
-                const dy = dirSign * move;
-                if (tailLength > 0) {
-                    let gy0;
-                    let gy1;
-                    if (dy >= 0) {
-                        gy0 = Math.max(areaY, visorY - tailLength);
-                        gy1 = visorY;
-                    } else {
-                        gy0 = visorY + barSize;
-                        gy1 = Math.min(areaY + areaHeight, visorY + barSize + tailLength);
-                    }
-                    if (gy1 > gy0) {
-                        const grad = ctx.createLinearGradient(areaX, gy0, areaX, gy1);
+                for (let wi = visorWaves.length - 1; wi >= 0; wi--) {
+                    const w = visorWaves[wi];
+                    const visorY = areaY - barSize + w.phase * cycleLen;
+                    const dy = dirSign * move;
+                    if (tailLength > 0) {
+                        let gy0;
+                        let gy1;
                         if (dy >= 0) {
-                            grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
-                            grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
+                            gy0 = Math.max(areaY, visorY - tailLength);
+                            gy1 = visorY;
                         } else {
-                            grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
-                            grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+                            gy0 = visorY + barSize;
+                            gy1 = Math.min(areaY + areaHeight, visorY + barSize + tailLength);
                         }
-                        ctx.fillStyle = grad;
-                        ctx.fillRect(areaX, gy0, areaWidth, gy1 - gy0);
+                        if (gy1 > gy0) {
+                            const grad = ctx.createLinearGradient(areaX, gy0, areaX, gy1);
+                            if (dy >= 0) {
+                                grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+                                grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
+                            } else {
+                                grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},${0.45 * trailStrength})`);
+                                grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+                            }
+                            ctx.fillStyle = grad;
+                            ctx.fillRect(areaX, gy0, areaWidth, gy1 - gy0);
+                        }
                     }
-                }
-                ctx.fillStyle = currentVisorColor;
-                ctx.fillRect(areaX, visorY, areaWidth, barSize);
-                visorY += dy;
+                    ctx.fillStyle = currentVisorColor;
+                    ctx.fillRect(areaX, visorY, areaWidth, barSize);
 
-                if (dy >= 0 && visorY > areaY + areaHeight) {
-                    visorY = areaY - barSize;
-                    currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
-                } else if (dy < 0 && visorY + barSize < areaY) {
-                    visorY = areaY + areaHeight;
-                    currentVisorColor = visorRandomColors ? generateRandomColor() : visorColor;
+                    let ph = w.phase + phaseDelta;
+                    while (ph >= 1) {
+                        ph -= 1;
+                        if (visorRandomColors) {
+                            currentVisorColor = generateRandomColor();
+                        }
+                    }
+                    while (ph < 0) {
+                        ph += 1;
+                        if (visorRandomColors) {
+                            currentVisorColor = generateRandomColor();
+                        }
+                    }
+                    w.phase = ph;
                 }
             }
         }
@@ -354,6 +396,9 @@
         }
         function onvisorDirectionChanged() {
             resetVisorPosition();
+        }
+        function onvisorWaveCountChanged() {
+            layoutVisorWaves();
         }
 
         // Khởi động
